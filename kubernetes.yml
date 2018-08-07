@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spot-keeper
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRole
+metadata:
+  name: spot-keeper
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - pods
+      - nodes
+    verbs:
+      - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: spot-keeper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spot-keeper
+subjects:
+  - kind: ServiceAccount
+    name: spot-keeper
+    namespace: spot-keeper
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: spot-keeper
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: spot-keeper
+    spec:
+      containers:
+        - name: spot-keeper
+          image: bsycorp/spot-keeper:latest
+          env:
+          - name: ASG_NAME
+            value: "nodes.kube.local"
+          - name: TARGET_INSTANCE_COUNT
+            value: "15"
+          - name: OPERATION_START
+            value: "08:00"
+          - name: OPERATION_END
+            value: "15:59"
+          - name: BLOCK_DURATION
+            value: "240"
+          - name: ADDITIONAL_INSTANCE_TYPES
+            value: "m3.medium"
+          - name: AWS_DEFAULT_REGION
+            value: "ap-southeast-2"
+      serviceAccountName: spot-keeper
