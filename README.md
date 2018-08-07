@@ -2,6 +2,8 @@
 
 This is a simple set of scripts to enable the use of EC2 Spot Blocks in addition to On-Demand EC2 instances for limited duration, non-reschedulable workloads, like CI builds. 
 
+[![Build Status](https://travis-ci.org/bsycorp/spot-keeper.svg?branch=master)](https://travis-ci.org/bsycorp/spot-keeper)
+
 Regular spot instances are a bad fit for CI builds where generally if a CI job is rescheduled it is marked as failed and fails the build, so regular EC2 spot instances even with 2 minute warnings will cause unacceptable build failures when the spot instance is preempted. Spot blocks aim to solve this problem by giving you a defined duration that the instance will remain available, they are cheaper than on-demand (but not as cheap as proper spots of course).
 
 The way Spot Keeper works is it creates instances from a template ASG, this ASG is normally used to create on-demand instances to meet CI job workloads via Kubernetes Autoscaler. These on-demand instances are expensive however, so substituting them with Spot Blocks will save some money. By using this ASG as the template, we get instances that look like on-demand CI build nodes, but are actually Spot Blocks. An added benefit is when our Spot block instances aren't renewed or are over capacity the on-demand ASG will kick in to meet the un-met demand.
