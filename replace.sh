@@ -18,10 +18,6 @@ if [ -z "$CHECK_WAIT_TIMEOUT" ]; then
     CHECK_WAIT_TIMEOUT="1080" # timeout to wait for node to drain, give it 18 mins, bit less than block remaining
 fi
 
-# Script
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-echo "replace ($INSTANCE_ID): Trying to replace $INSTANCE_ID"
-
 INSTANCE_DETAIL=$(aws ec2 describe-instances --filter Name=instance-id,Values=$INSTANCE_ID)
 ASG_NAME=$(echo "$INSTANCE_DETAIL" | jq ".Reservations[].Instances[].Tags[]|select(.Key==\"SpotSysTemplateASG\")|.Value" | cut -d'"' -f 2)
 INSTANCE_IDENTIFIER=$(echo "$INSTANCE_DETAIL" | jq ".Reservations[].Instances[].Tags[]|select(.Key==\"SpotSysIdentifier\")|.Value" | cut -d'"' -f 2)
@@ -31,31 +27,10 @@ if [ -z "$ASG_NAME" ] || [ -z "$INSTANCE_IDENTIFIER" ]; then
 	exit 1
 fi
 
-NODE_NAME=$(aws ec2 describe-instances --filter Name=instance-id,Values=$INSTANCE_ID | jq ".Reservations[].Instances[].PrivateDnsName" | cut -d'"' -f 2)
-if [ -z "$NODE_NAME" ]; then
-	echo "replace ($INSTANCE_ID): Couldn't find node name! Might have been terminated already?"
+if ! $SCRIPT_DIR/cordon.sh $INSTANCE_ID; then
+	echo "replace: Failed cordoning $INSTANCE_ID"
 	exit 1
 fi
-
-echo "replace ($INSTANCE_ID): Found node name: $NODE_NAME, checking cordon.."
-
-NODE_DESCRIPTION=$(kubectl get node | grep $NODE_NAME | cat)
-if [ -z "$NODE_DESCRIPTION" ]; then
-	echo "replace ($INSTANCE_ID): Couldn't find registered node in kube! Might have been terminated already?"
-	exit 1
-fi
-
-# check and optionally mark instance as being replaced, so we don't try and replace it multiple times
-ALREADY_BEING_REPLACED=$(aws ec2 describe-instances --filter Name=instance-id,Values=$INSTANCE_ID | jq ".Reservations[].Instances[].Tags[]|select(.Key==\"SpotSysReplacing\")|.Value" | cut -d'"' -f 2)
-if [ ! -z "$ALREADY_BEING_REPLACED" ]; then
-	echo "replace ($INSTANCE_ID): Instance $INSTANCE_ID is already being replaced, ignoring.."
-	exit 0
-else
-	aws ec2 create-tags --resources $INSTANCE_ID --tags Key=SpotSysReplacing,Value=true
-fi
-
-# cordon node, no more pods will be scheduled!
-kubectl cordon $NODE_NAME | cat
 
 # check for pods to complete and then we can terminate.
 START_TIME=$(date +%s)

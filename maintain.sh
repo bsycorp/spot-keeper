@@ -47,23 +47,36 @@ LAST_CREATED_TIMESTAMP=""
 while true; do
 	CURRENT_HOURMINUTE=$(TZ="$OPERATION_TZ" date +%H:%M)
 	CURRENT_DOW=$(TZ="$OPERATION_TZ" date +%a)
+	OUT_OF_HOURS=false
 
 	if [[ $CURRENT_HOURMINUTE < "$OPERATION_START" ]] || [[ $CURRENT_HOURMINUTE > "$OPERATION_END" ]] || [[ $OPERATION_DOW != *"$CURRENT_DOW"* ]]; then
-		echo "maintain: Currently outside the hours of operation, hours are $OPERATION_START to $OPERATION_END ($OPERATION_DOW), it is currently $CURRENT_DOW at $CURRENT_HOURMINUTE"
-	else
-		printf "maintain: Finding existing spot instances created off $ASG_NAME with <$REPLACEMENT_LIMIT_SECONDS seconds remaining.. "
-		INSTANCE_IDS=$(aws ec2 describe-instances --filter Name=tag:SpotSysTemplateASG,Values=$ASG_NAME Name=instance-state-name,Values=running | jq ".Reservations[].Instances[].InstanceId" | cut -d'"' -f 2)
-		INSTANCE_COUNT=$(printf "$INSTANCE_IDS" | grep -c "i" | cat)
-		printf "found $INSTANCE_COUNT instance(s)\n"
+		echo "maintain: Currently outside the hours of operation no new instances will be started, hours are $OPERATION_START to $OPERATION_END ($OPERATION_DOW), it is currently $CURRENT_DOW at $CURRENT_HOURMINUTE"
+		OUT_OF_HOURS=true
+	fi
 
-		# try and replace existing instances
-		for INSTANCE_ID in $(echo $INSTANCE_IDS)
-		do
-			NOW=$(date +%s)
-			INSTANCE_EXPIRY=$(aws ec2 describe-instances --filter Name=instance-id,Values=$INSTANCE_ID | jq ".Reservations[].Instances[].Tags[]|select(.Key==\"SpotSysExpired\")|.Value" | cut -d'"' -f 2)
-			INSTANCE_EXPIRES_IN=$((INSTANCE_EXPIRY - NOW))
+	printf "maintain: Finding existing spot instances created off $ASG_NAME with <$REPLACEMENT_LIMIT_SECONDS seconds remaining.. "
+	INSTANCE_IDS=$(aws ec2 describe-instances --filter Name=tag:SpotSysTemplateASG,Values=$ASG_NAME Name=instance-state-name,Values=running | jq ".Reservations[].Instances[].InstanceId" | cut -d'"' -f 2)
+	INSTANCE_COUNT=$(printf "$INSTANCE_IDS" | grep -c "i" | cat)
+	printf "found $INSTANCE_COUNT instance(s)\n"
 
-			if [ $INSTANCE_EXPIRES_IN -lt $REPLACEMENT_LIMIT_SECONDS ]; then
+	# try and replace existing instances or cordon existing ones
+	for INSTANCE_ID in $(echo $INSTANCE_IDS)
+	do
+		NOW=$(date +%s)
+		INSTANCE_EXPIRY=$(aws ec2 describe-instances --filter Name=instance-id,Values=$INSTANCE_ID | jq ".Reservations[].Instances[].Tags[]|select(.Key==\"SpotSysExpired\")|.Value" | cut -d'"' -f 2)
+		INSTANCE_EXPIRES_IN=$((INSTANCE_EXPIRY - NOW))
+
+		if [ $INSTANCE_EXPIRES_IN -lt $REPLACEMENT_LIMIT_SECONDS ]; then
+			if [ "$OUT_OF_HOURS" == "true" ]; then
+				echo "maintain: $INSTANCE_ID expires in $INSTANCE_EXPIRES_IN seconds, cordoning.."
+				{
+					set +e
+					echo "maintain: Cordoning.. $INSTANCE_ID"
+					if ! $SCRIPT_DIR/cordon.sh $INSTANCE_ID; then
+						echo "maintain: Failed cordoning $INSTANCE_ID"
+					fi
+				} &
+			else
 				echo "maintain: $INSTANCE_ID expires in $INSTANCE_EXPIRES_IN seconds, replacing.."
 				{
 					set +e
@@ -72,31 +85,29 @@ while true; do
 						echo "maintain: Failed replacing $INSTANCE_ID"
 					fi
 				} &
-			# else
-			# 	echo "maintain: Ignoring $INSTANCE_ID,  expires in $INSTANCE_EXPIRES_IN seconds."
 			fi
-		done
+		fi
+	done
 
-		#try and create instances if we are below target
-		if [ $INSTANCE_COUNT -lt $TARGET_INSTANCE_COUNT ]; then
-			CURRENT_TIMESTAMP=$(date +%s)
-			# if we have no last created timestamp, or the last time we created was more than N seconds ago, create a new instance
-			if [ -z "$LAST_CREATED_TIMESTAMP" ] || [ $LAST_CREATED_TIMESTAMP -lt $((CURRENT_TIMESTAMP - CREATION_DELAY_SECONDS)) ]; then
-				LAST_CREATED_TIMESTAMP=$CURRENT_TIMESTAMP
-				echo "maintain: Instance count ($INSTANCE_COUNT) is below target count ($TARGET_INSTANCE_COUNT), trying to create a new instance.."
-				{
-					set +e
-					if ! $SCRIPT_DIR/create.sh "$ASG_NAME"; then
-						echo "maintain: Failed creating instance"
-					fi
-				} &
-			else
-				echo "maintain: Instance count ($INSTANCE_COUNT) is below target count ($TARGET_INSTANCE_COUNT), created instance recently, skipping.."
-			fi
-
+	#try and create instances if we are below target and not out of hours
+	if [ $INSTANCE_COUNT -lt $TARGET_INSTANCE_COUNT ] && [ "$OUT_OF_HOURS" == "false" ]; then
+		CURRENT_TIMESTAMP=$(date +%s)
+		# if we have no last created timestamp, or the last time we created was more than N seconds ago, create a new instance
+		if [ -z "$LAST_CREATED_TIMESTAMP" ] || [ $LAST_CREATED_TIMESTAMP -lt $((CURRENT_TIMESTAMP - CREATION_DELAY_SECONDS)) ]; then
+			LAST_CREATED_TIMESTAMP=$CURRENT_TIMESTAMP
+			echo "maintain: Instance count ($INSTANCE_COUNT) is below target count ($TARGET_INSTANCE_COUNT), trying to create a new instance.."
+			{
+				set +e
+				if ! $SCRIPT_DIR/create.sh "$ASG_NAME"; then
+					echo "maintain: Failed creating instance"
+				fi
+			} &
+		else
+			echo "maintain: Instance count ($INSTANCE_COUNT) is below target count ($TARGET_INSTANCE_COUNT), created instance recently, skipping.."
 		fi
 
-		echo "maintain: Done checking, waiting for 60 secs.."
 	fi
+
+	echo "maintain: Done checking, waiting for 60 secs.."
 	sleep 60
 done
