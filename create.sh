@@ -8,7 +8,7 @@ trap 'error_trap $LINENO' ERR
 
 # Config
 WAIT_TIMEOUT="30" # timeout to wait for spot reservation to get an instance
-TAG_NAMES="KubernetesCluster,Purpose,k8s.io/role/node,Cluster,Datadog,Env,Instance,ProxyUser"
+TAG_NAMES="KubernetesCluster,Purpose,k8s.io/role/node,Cluster,Datadog,Env,Instance,ProxyUser,kops.k8s.io/instancegroup"
 
 ASG_NAME="$1"
 if [ -z "$ASG_NAME" ]; then
