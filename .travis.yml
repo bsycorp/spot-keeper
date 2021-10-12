@@ -1,8 +1,0 @@
-sudo: required
-services: docker
-language: minimal
-
-script:
-  - docker login -u $DOCKERUSER -p $DOCKERPASS
-  - DOCKER_CONTENT_TRUST=1 docker build -t "bsycorp/spot-keeper:latest" .
-  - docker push bsycorp/spot-keeper
