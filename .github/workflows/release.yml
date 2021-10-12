@@ -15,4 +15,4 @@ jobs:
       - run: |
           echo ${{ secrets.DOCKERPASS }} | docker login -u ${{ secrets.DOCKERUSER }} --password-stdin
           DOCKER_CONTENT_TRUST=1 docker build -t "bsycorp/spot-keeper:1.0.${{ github.run_number }}" .
-          docker push bsycorp/spotkeeper:1.0.${{ github.run_number }}
+          docker push bsycorp/spot-keeper:1.0.${{ github.run_number }}
