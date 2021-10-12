@@ -32,6 +32,11 @@ if ! $SCRIPT_DIR/cordon.sh $INSTANCE_ID; then
 	exit 1
 fi
 
+NODE_NAME=$(echo "INSTANCE_DETAIL" | jq ".Reservations[].Instances[].PrivateDnsName" | cut -d'"' -f 2)
+if [ -z "$NODE_NAME" ]; then
+        echo "replace ($INSTANCE_ID): warning: couldn't get node name, node will be terminated immediately."
+fi
+
 # check for pods to complete and then we can terminate.
 START_TIME=$(date +%s)
 while true; do
