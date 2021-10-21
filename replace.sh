@@ -27,6 +27,16 @@ if [ -z "$ASG_NAME" ] || [ -z "$INSTANCE_IDENTIFIER" ]; then
 	exit 1
 fi
 
+# check and optionally mark instance as being replaced, so we don't try and replace it multiple times
+ALREADY_BEING_REPLACED=$(aws ec2 describe-instances --filter Name=instance-id,Values=$INSTANCE_ID | jq ".Reservations[].Instances[].Tags[]|select(.Key==\"SpotSysReplacing\")|.Value" | cut -d'"' -f 2)
+if [ ! -z "$ALREADY_BEING_REPLACED" ]; then
+        echo "replace ($INSTANCE_ID): Instance $INSTANCE_ID is already being replaced, ignoring.."
+        exit 0
+else
+        aws ec2 create-tags --resources $INSTANCE_ID --tags Key=SpotSysReplacing,Value=true
+fi
+
+
 if ! $SCRIPT_DIR/cordon.sh $INSTANCE_ID; then
 	echo "replace: Failed cordoning $INSTANCE_ID"
 	exit 1
